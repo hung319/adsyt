@@ -27,13 +27,16 @@ class ApiHelper:
         self.skip_count_tracking = config.skip_count_tracking
         self.web_session = web_session
         self.num_devices = len(config.devices)
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Mediapartners-Google) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        }
 
     # Not used anymore, maybe it can stay here a little longer
     @AsyncLRU(maxsize=10)
     async def get_vid_id(self, title, artist, api_key, web_session):
         params = {"q": title + " " + artist, "key": api_key, "part": "snippet"}
         url = constants.Youtube_api + "search"
-        async with web_session.get(url, params=params) as resp:
+        async with web_session.get(url, params=params, headers=self.headers) as resp:
             data = await resp.json()
 
         if "error" in data:
@@ -61,7 +64,7 @@ class ApiHelper:
     async def __get_channel_id(self, vid_id):
         params = {"id": vid_id, "key": self.apikey, "part": "snippet"}
         url = constants.Youtube_api + "videos"
-        async with self.web_session.get(url, params=params) as resp:
+        async with self.web_session.get(url, params=params, headers=self.headers) as resp:
             data = await resp.json()
 
         if "error" in data:
@@ -82,7 +85,7 @@ class ApiHelper:
             "maxResults": "5",
         }
         url = constants.Youtube_api + "search"
-        async with self.web_session.get(url, params=params) as resp:
+        async with self.web_session.get(url, params=params, headers=self.headers) as resp:
             data = await resp.json()
         if "error" in data:
             return channels
@@ -95,7 +98,7 @@ class ApiHelper:
                 "part": "statistics",
             }
             url = constants.Youtube_api + "channels"
-            async with self.web_session.get(url, params=params) as resp:
+            async with self.web_session.get(url, params=params, headers=self.headers) as resp:
                 channel_data = await resp.json()
 
             if channel_data["items"][0]["statistics"]["hiddenSubscriberCount"]:
@@ -132,7 +135,7 @@ class ApiHelper:
         headers = {"Accept": "application/json"}
         url = constants.SponsorBlock_api + "skipSegments/" + vid_id_hashed
         async with self.web_session.get(
-            url, headers=headers, params=params
+            url, headers={**headers, **self.headers}, params=params
         ) as response:
             response_json = await response.json()
         if response.status != 200:
@@ -203,7 +206,7 @@ class ApiHelper:
             for i in uuids:
                 url = constants.SponsorBlock_api + "viewedVideoSponsorTime/"
                 params = {"UUID": i}
-                await self.web_session.post(url, params=params)
+                await self.web_session.post(url, params=params, headers=self.headers)
 
     async def discover_youtube_devices_dial(self):
         """Discovers YouTube devices using DIAL"""
