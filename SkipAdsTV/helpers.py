@@ -32,11 +32,11 @@ class Device:
 class Config:
     def __init__(self, data_dir):
         self.data_dir = data_dir
-        self.config_file = data_dir + "/config.json"
+        self.config_file = os.path.join(data_dir, "config.json")
 
         self.devices = []
         self.apikey = ""
-        self.skip_categories = []  # These are the categories on the config file
+        self.skip_categories = []  # Categories to skip from the config file
         self.channel_whitelist = []
         self.skip_count_tracking = True
         self.mute_ads = True
@@ -57,10 +57,16 @@ class Config:
         self.devices = [Device(i) for i in self.devices]
         if not self.apikey and self.channel_whitelist:
             raise ValueError(
-                "No youtube API key found and channel whitelist is not empty"
+                "No YouTube API key found and channel whitelist is not empty"
             )
         if not self.skip_categories:
-            self.skip_categories = ["Sponsor", "sponsor", "Self Promotion", "selfpromo", "Intro", "intro", "Outro", "outro", "Music Offtopic", "music_offtopic", "Interaction", "interaction", "Exclusive Access", "exclusive_access", "POI Highlight", "poi_highlight", "Preview", "preview", "Filler", "filler"]
+            self.skip_categories = [
+                "Sponsor", "sponsor", "Self Promotion", "selfpromo",
+                "Intro", "intro", "Outro", "outro", "Music Offtopic",
+                "music_offtopic", "Interaction", "interaction",
+                "Exclusive Access", "exclusive_access", "POI Highlight",
+                "poi_highlight", "Preview", "preview", "Filler", "filler"
+            ]
             print("SkipAdsTV: Đã hoàn tất thiết lập")
 
     def __load(self):
@@ -72,18 +78,15 @@ class Config:
                         setattr(self, i, config[i])
         except FileNotFoundError:
             print("Could not load config file")
-            
+
     def save(self):
         with open(self.config_file, "w", encoding="utf-8") as f:
-            config_dict = self.__dict__
-            # Don't save the config file name
-            config_file = self.config_file
-            data_dir = self.data_dir
+            config_dict = self.__dict__.copy()
+            # Don't save the config file path and data directory
             del config_dict["config_file"]
             del config_dict["data_dir"]
             json.dump(config_dict, f, indent=4)
-            self.config_file = config_file
-            self.data_dir = data_dir
+            print("Config saved successfully.")
 
     def __eq__(self, other):
         if isinstance(other, Config):
@@ -98,19 +101,31 @@ def app_start():
     )
     parser = argparse.ArgumentParser(description="SkipAdsTV")
     parser.add_argument(
-        "--data-dir", "-d", default=default_data_dir, help="data directory"
+        "--data-dir", "-d", default=default_data_dir, help="Data directory"
     )
     parser.add_argument(
-        "--setup", "-s", action="store_true", help="setup the program graphically"
+        "--setup", "-s", action="store_true", help="Setup the program graphically"
     )
     parser.add_argument(
         "--setup-cli",
         "-sc",
         action="store_true",
-        help="setup the program in the command line",
+        help="Setup the program in the command line",
     )
-    parser.add_argument("--debug", action="store_true", help="debug mode")
+    parser.add_argument("--debug", action="store_true", help="Debug mode")
+    parser.add_argument(
+        "--reset-config", "-r", action="store_true", help="Delete old config file"
+    )
     args = parser.parse_args()
+
+    # Xóa file config nếu có tùy chọn --reset-config
+    config_file_path = os.path.join(args.data_dir, "config.json")
+    if args.reset_config:
+        if os.path.exists(config_file_path):
+            os.remove(config_file_path)
+            print("Config file deleted successfully.")
+        else:
+            print("No config file found to delete.")
 
     config = Config(args.data_dir)
     if args.debug:
