@@ -1,5 +1,6 @@
 import asyncio
 import json
+import aiohttp
 
 import pyytlounge
 from aiohttp import ClientSession
@@ -19,8 +20,8 @@ class YtLoungeApi(pyytlounge.YtLoungeApi):
         web_session: ClientSession = None,
     ):
         super().__init__("SkipAdsTV", logger=logger)
-        if web_session is not None:
-            self.session = web_session  # And use the one we passed
+
+        self.logger = logger
         self.auth.screen_id = screen_id
         self.auth.lounge_id_token = None
         self.api_helper = api_helper
@@ -28,100 +29,102 @@ class YtLoungeApi(pyytlounge.YtLoungeApi):
         self.subscribe_task = None
         self.subscribe_task_watchdog = None
         self.callback = None
-        self.logger = logger
         self.shorts_disconnected = False
-        self.auto_play = True
+        self.auto_play = config.auto_play if config else True
         self.mute_ads = True
         self.skip_ads = True
-        if config:
-            self.mute_ads = True
-            self.skip_ads = True
-            self.auto_play = config.auto_play
 
-    # Ensures that we still are subscribed to the lounge
+        # Dùng session được truyền vào hoặc tạo mới
+        if web_session:
+            self.session = web_session
+        else:
+            self.session = aiohttp.ClientSession(
+                headers={"User-Agent": self.modify_user_agent(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )}
+            )
+
+    def modify_user_agent(self, user_agent: str) -> str:
+        """Chỉnh sửa User-Agent để phù hợp với YouTube."""
+        if "youtube.com" in user_agent.lower():
+            return user_agent.replace(")", "; Mediapartners-Google)")
+        return user_agent
+
+    async def fetch(self, url, **kwargs):
+        """Hàm gửi request với User-Agent được chỉnh sửa."""
+        headers = kwargs.pop("headers", {})
+        headers["User-Agent"] = self.modify_user_agent(headers.get("User-Agent", ""))
+        async with self.session.get(url, headers=headers, **kwargs) as response:
+            return await response.text()
+
     async def _watchdog(self):
-        await asyncio.sleep(
-            35
-        )  # YouTube sends at least a message every 30 seconds (no-op or any other)
+        """Đảm bảo vẫn kết nối đến lounge."""
+        await asyncio.sleep(35)
         try:
             self.subscribe_task.cancel()
         except Exception:
             pass
 
-    # Subscribe to the lounge and start the watchdog
     async def subscribe_monitored(self, callback):
+        """Đăng ký vào lounge với giám sát."""
         self.callback = callback
         try:
             self.subscribe_task_watchdog.cancel()
         except:
-            pass  # No watchdog task
+            pass
         self.subscribe_task = asyncio.create_task(super().subscribe(callback))
         self.subscribe_task_watchdog = asyncio.create_task(self._watchdog())
         return self.subscribe_task
 
-    # Process a lounge subscription event
     def _process_event(self, event_id: int, event_type: str, args):
+        """Xử lý sự kiện nhận được từ YouTube."""
         self.logger.debug(f"process_event({event_id}, {event_type}, {args})")
-        # (Re)start the watchdog
+
         try:
             self.subscribe_task_watchdog.cancel()
         except:
             pass
         finally:
             self.subscribe_task_watchdog = asyncio.create_task(self._watchdog())
-        # A bunch of events useful to detect ads playing, and the next video before it starts playing (that way we
-        # can get the segments)
+
         if event_type == "onStateChange":
             data = args[0]
-            # print(data)
-            # Unmute when the video starts playing
             if self.mute_ads and data["state"] == "1":
                 create_task(self.mute(False, override=True))
+
         elif event_type == "nowPlaying":
             data = args[0]
-            # Unmute when the video starts playing
             if self.mute_ads and data.get("state", "0") == "1":
                 create_task(self.mute(False, override=True))
+
         elif event_type == "onAdStateChange":
             data = args[0]
             if data["adState"] == "0":
                 create_task(self.mute(False, override=True))
-            elif (
-                self.skip_ads and data["isSkipEnabled"] == "true"
-            ):  # YouTube uses strings for booleans
-                self.logger.info("Phát hiện phân đoạn quảng cáo, đã bỏ qua")
+            elif self.skip_ads and data["isSkipEnabled"] == "true":
+                self.logger.info("Phát hiện quảng cáo, đang bỏ qua...")
                 create_task(self.skip_ad())
                 create_task(self.mute(False, override=True))
-            elif (
-                self.mute_ads
-            ):  # Seen multiple other adStates, assuming they are all ads
+            elif self.mute_ads:
                 create_task(self.mute(True, override=True))
-        # Manages volume, useful since YouTube wants to know the volume when unmuting (even if they already have it)
+
         elif event_type == "onVolumeChanged":
             self.volume_state = args[0]
-            pass
-        # Gets segments for the next video before it starts playing
+
         elif event_type == "autoplayUpNext":
-            if len(args) > 0 and (
-                vid_id := args[0]["videoId"]
-            ):  # if video id is not empty
+            if len(args) > 0 and (vid_id := args[0]["videoId"]):
                 create_task(self.api_helper.get_segments(vid_id))
 
-        # #Used to know if an ad is skippable or not
         elif event_type == "adPlaying":
             data = args[0]
-            # Gets segments for the next video (after the ad) before it starts playing
             if vid_id := data["contentVideoId"]:
                 create_task(self.api_helper.get_segments(vid_id))
-            elif (
-                self.skip_ads and data["isSkipEnabled"] == "true"
-            ):  # YouTube uses strings for booleans
-                self.logger.info("Phát hiện phân đoạn quảng cáo, đã bỏ qua")
+            elif self.skip_ads and data["isSkipEnabled"] == "true":
+                self.logger.info("Phát hiện quảng cáo, đang bỏ qua...")
                 create_task(self.skip_ad())
                 create_task(self.mute(False, override=True))
-            elif (
-                self.mute_ads
-            ):  # Seen multiple other adStates, assuming they are all ads
+            elif self.mute_ads:
                 create_task(self.mute(True, override=True))
 
         elif event_type == "loungeStatus":
@@ -132,7 +135,7 @@ class YtLoungeApi(pyytlounge.YtLoungeApi):
                     device_info = json.loads(device.get("deviceInfo", "{}"))
                     if device_info.get("clientName", "") in youtube_client_blacklist:
                         self._sid = None
-                        self._gsession = None  # Force disconnect
+                        self._gsession = None
 
         elif event_type == "onSubtitlesTrackChanged":
             if self.shorts_disconnected:
@@ -140,31 +143,24 @@ class YtLoungeApi(pyytlounge.YtLoungeApi):
                 video_id_saved = data.get("videoId", None)
                 self.shorts_disconnected = False
                 create_task(self.play_video(video_id_saved))
+
         elif event_type == "loungeScreenDisconnected":
             data = args[0]
-            if data["reason"] == "disconnectedByUserScreenInitiated":  # Short playing?
+            if data["reason"] == "disconnectedByUserScreenInitiated":
                 self.shorts_disconnected = True
+
         elif event_type == "onAutoplayModeChanged":
             create_task(self.set_auto_play_mode(self.auto_play))
 
         super()._process_event(event_id, event_type, args)
 
-    # Set the volume to a specific value (0-100)
     async def set_volume(self, volume: int) -> None:
         await super()._command("setVolume", {"volume": volume})
 
-    # Mute or unmute the device (if the device already is in the desired state, nothing happens)
-    # mute: True to mute, False to unmute
-    # override: If True, the command is sent even if the device already is in the desired state
-    # TODO: Only works if the device is subscribed to the lounge
     async def mute(self, mute: bool, override: bool = False) -> None:
-        if mute:
-            mute_str = "true"
-        else:
-            mute_str = "false"
+        mute_str = "true" if mute else "false"
         if override or not (self.volume_state.get("muted", "false") == mute_str):
             self.volume_state["muted"] = mute_str
-            # YouTube wants the volume when unmuting, so we send it
             await super()._command(
                 "setVolume",
                 {"volume": self.volume_state.get("volume", 100), "muted": mute_str},
