@@ -1,4 +1,4 @@
-userAgent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
+userAgent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36; Mediapartners-Google)"
 SponsorBlock_service = "youtube"
 SponsorBlock_actiontype = "skip"
 
