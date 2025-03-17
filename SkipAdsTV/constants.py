@@ -1,4 +1,4 @@
-userAgent = "Mozilla/5.0 (compatible; Mediapartners-Google; MSIE 10.0; Windows Phone 8.0; Trident/6.0; IEMobile/10.0; ARM; Touch; NOKIA; Lumia 920)"
+userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Mediapartners-Google/2.1; +http://www.google.com/bot.html) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 SponsorBlock_service = "youtube"
 SponsorBlock_actiontype = "skip"
 
